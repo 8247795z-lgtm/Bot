@@ -172,9 +172,10 @@ def turn_kb(uid):
             InlineKeyboardButton("Действие 🔥", callback_data=f"dare_{uid}")
         ],
         [
-            InlineKeyboardButton("Пас", callback_data=f"pass_{uid}"),
-            InlineKeyboardButton("🏁 Завершить", callback_data="end")
-        ]
+            InlineKeyboardButton("🔄 Пас", callback_data=f"pass_{uid}"),
+            InlineKeyboardButton("📊 Статистика", callback_data="stats")
+        ],
+        [InlineKeyboardButton("🏁 Завершить игру", callback_data="end")]
     ])
 
 def after_kb(uid):
@@ -222,14 +223,15 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat_id
     game = games.get(chat_id)
 
-    # Одиночная
+    # ===== Одиночная =====
     if data == "solo_truth":
         task = random.choice(tasks["dirty"]["truth"] + tasks["hard"]["truth"])
         context.user_data["last_task"] = task
         await query.edit_message_text(f"💙 <b>ПРАВДА</b>\n\n{task}", 
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⭐ Хочу это в реале", callback_data="solo_fav")],
-                [InlineKeyboardButton("Ещё", callback_data="solo_truth")]
+                [InlineKeyboardButton("Ещё Правда", callback_data="solo_truth"),
+                 InlineKeyboardButton("Действие", callback_data="solo_dare")]
             ]), parse_mode="HTML")
         return
 
@@ -239,7 +241,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"🔥 <b>ДЕЙСТВИЕ</b>\n\n{task}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⭐ Хочу это в реале", callback_data="solo_fav")],
-                [InlineKeyboardButton("Ещё", callback_data="solo_dare")]
+                [InlineKeyboardButton("Правда", callback_data="solo_truth"),
+                 InlineKeyboardButton("Ещё Действие", callback_data="solo_dare")]
             ]), parse_mode="HTML")
         return
 
@@ -257,7 +260,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=solo_kb())
         return
 
-    # Группа
+    # ===== Группа =====
     if data == "join":
         if not game:
             await query.answer("Сначала /game", show_alert=True)
@@ -330,7 +333,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         other = game["players"][0] if game["current"] == game["players"][1] else game["players"][1]
         game["current"] = other
         await query.edit_message_text(
-            f"✅ Ход передан!\nСчёт: {game['names'][uid]} — {game['scores'][uid]} | {game['names'][other]} — {game['scores'][other]}\n\n"
+            f"✅ Ход передан!\n\n"
+            f"📊 Счёт:\n{game['names'][uid]} — <b>{game['scores'][uid]}</b>\n{game['names'][other]} — <b>{game['scores'][other]}</b>\n\n"
             f"Сейчас ходит: <b>{game['names'][other]}</b>",
             reply_markup=turn_kb(other), parse_mode="HTML")
         return
@@ -338,21 +342,54 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("pass_"):
         target = int(data.split("_")[1])
         if not game or uid != target or game["passes"].get(uid, 0) <= 0:
-            await query.answer("Пасов больше нет", show_alert=True)
+            await query.answer("Пасов больше нет или не твой ход", show_alert=True)
             return
         game["passes"][uid] -= 1
         other = game["players"][0] if game["current"] == game["players"][1] else game["players"][1]
         game["current"] = other
-        await query.edit_message_text(f"{name} использовал(а) пас.\nСейчас ходит: <b>{game['names'][other]}</b>",
+        await query.edit_message_text(
+            f"🔄 {name} использовал(а) <b>пас</b>.\n\nСейчас ходит: <b>{game['names'][other]}</b>",
             reply_markup=turn_kb(other), parse_mode="HTML")
+        return
+
+    if data == "stats":
+        if not game:
+            await query.answer("Игра не найдена")
+            return
+        p1, p2 = game["players"]
+        text = (
+            f"📊 <b>Текущая статистика</b>\n\n"
+            f"{game['names'][p1]}: <b>{game['scores'][p1]}</b> заданий\n"
+            f"{game['names'][p2]}: <b>{game['scores'][p2]}</b> заданий\n\n"
+            f"Пасы остались:\n"
+            f"{game['names'][p1]} — {game['passes'][p1]}\n"
+            f"{game['names'][p2]} — {game['passes'][p2]}"
+        )
+        await query.answer()
+        await query.message.reply_text(text, parse_mode="HTML")
         return
 
     if data == "end":
         if chat_id in games:
             p1, p2 = games[chat_id]["players"]
-            text = f"🏁 Игра окончена!\n\n{games[chat_id]['names'][p1]}: {games[chat_id]['scores'][p1]}\n{games[chat_id]['names'][p2]}: {games[chat_id]['scores'][p2]}"
+            s1 = games[chat_id]["scores"][p1]
+            s2 = games[chat_id]["scores"][p2]
+            winner = ""
+            if s1 > s2:
+                winner = f"\n\n🏆 Победитель: <b>{games[chat_id]['names'][p1]}</b>"
+            elif s2 > s1:
+                winner = f"\n\n🏆 Победитель: <b>{games[chat_id]['names'][p2]}</b>"
+            else:
+                winner = "\n\n🤝 Ничья!"
+
+            text = (
+                f"🏁 <b>Игра окончена!</b>\n\n"
+                f"{games[chat_id]['names'][p1]}: <b>{s1}</b>\n"
+                f"{games[chat_id]['names'][p2]}: <b>{s2}</b>"
+                f"{winner}"
+            )
             del games[chat_id]
-            await query.edit_message_text(text)
+            await query.edit_message_text(text, parse_mode="HTML")
         return
 
 def main():
