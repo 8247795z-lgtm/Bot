@@ -1,0 +1,83 @@
+import logging
+import random
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+
+TOKEN = os.getenv("BOT_TOKEN")
+
+if not TOKEN:
+    raise ValueError("Переменная BOT_TOKEN не найдена!")
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+
+# ================== ЗАДАНИЯ ==================
+truths = [
+    "Какая часть моего тела тебе нравится больше всего?",
+    "Расскажи свою самую грязную фантазию про нас.",
+    "Что тебя сильнее всего возбуждает, когда мы целуемся?",
+    "Какой мой самый сексуальный поступок?",
+    "Хотел(а) бы ты, чтобы я снял(а) тебя на видео?",
+    "Что бы ты хотел(а) сделать со мной прямо сейчас?",
+    "Расскажи свой самый горячий сон про меня.",
+    "Какая фраза от меня тебя сильнее всего заводит?"
+]
+
+dares = [
+    "Пришли развратное селфи.",
+    "Сними 15-секундное видео, как медленно раздеваешься.",
+    "Запиши голосовое со стонами.",
+    "Напиши на теле моё имя и пришли фото.",
+    "Пришли фото в самом сексуальном белье.",
+    "Сделай видео, где говоришь грязный комплимент.",
+    "Пришли фото своей груди/торса.",
+    "Сними короткое видео, как гладишь себя.",
+    "Запиши голосовое, где стонешь моё имя.",
+    "Сделай самое развратное лицо и пришли фото."
+]
+
+def main_kb():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Правда 💙", callback_data="truth"),
+            InlineKeyboardButton("Действие 🔥", callback_data="dare")
+        ]
+    ])
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "🔥 <b>Правда или Действие 18+</b>\n\n"
+        "Нажми кнопку ниже:"
+    )
+    await update.message.reply_text(text, reply_markup=main_kb(), parse_mode="HTML")
+
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "truth":
+        task = random.choice(truths)
+        text = f"💙 <b>ПРАВДА</b>\n\n{task}"
+    else:
+        task = random.choice(dares)
+        text = f"🔥 <b>ДЕЙСТВИЕ</b>\n\n{task}"
+
+    await query.edit_message_text(
+        text=text,
+        reply_markup=main_kb(),
+        parse_mode="HTML"
+    )
+
+def main():
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button))
+    
+    print("Бот успешно запущен!")
+    app.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
