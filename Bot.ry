@@ -5,14 +5,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 TOKEN = os.getenv("BOT_TOKEN")
-
 if not TOKEN:
-    raise ValueError("Переменная BOT_TOKEN не найдена!")
+    raise ValueError("BOT_TOKEN не установлен")
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 # ================== ЗАДАНИЯ ==================
 truths = [
@@ -23,7 +19,8 @@ truths = [
     "Хотел(а) бы ты, чтобы я снял(а) тебя на видео?",
     "Что бы ты хотел(а) сделать со мной прямо сейчас?",
     "Расскажи свой самый горячий сон про меня.",
-    "Какая фраза от меня тебя сильнее всего заводит?"
+    "Какая фраза от меня тебя сильнее всего заводит?",
+    "Есть ли у тебя тайная фантазия, о которой ты ещё не говорил(а)?"
 ]
 
 dares = [
@@ -36,47 +33,187 @@ dares = [
     "Пришли фото своей груди/торса.",
     "Сними короткое видео, как гладишь себя.",
     "Запиши голосовое, где стонешь моё имя.",
-    "Сделай самое развратное лицо и пришли фото."
+    "Сделай самое развратное лицо и пришли фото.",
+    "Пришли фото с широко раздвинутыми ногами (можно в белье)."
 ]
 
-def main_kb():
+# Хранилище игр (только в оперативной памяти)
+games = {}
+
+def solo_kb():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Правда 💙", callback_data="truth"),
-            InlineKeyboardButton("Действие 🔥", callback_data="dare")
+            InlineKeyboardButton("Правда 💙", callback_data="solo_truth"),
+            InlineKeyboardButton("Действие 🔥", callback_data="solo_dare")
         ]
     ])
 
+def join_kb():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("✅ Я играю", callback_data="join")]])
+
+def turn_kb(uid):
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Правда 💙", callback_data=f"truth_{uid}"),
+            InlineKeyboardButton("Действие 🔥", callback_data=f"dare_{uid}")
+        ],
+        [
+            InlineKeyboardButton("Пас", callback_data=f"pass_{uid}"),
+            InlineKeyboardButton("🏁 Завершить", callback_data="end")
+        ]
+    ])
+
+def done_kb(uid):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Я выполнил(а)", callback_data=f"done_{uid}")]
+    ])
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
+    await update.message.reply_text(
         "🔥 <b>Правда или Действие 18+</b>\n\n"
-        "Нажми кнопку ниже:"
+        "• В личке — просто играй кнопками\n"
+        "• В группе — напиши /game чтобы играть вдвоём",
+        reply_markup=solo_kb(),
+        parse_mode="HTML"
     )
-    await update.message.reply_text(text, reply_markup=main_kb(), parse_mode="HTML")
+
+async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    if chat.type == "private":
+        await update.message.reply_text("Эту команду нужно использовать в группе.")
+        return
+
+    chat_id = chat.id
+    games[chat_id] = {
+        "players": [],
+        "names": {},
+        "scores": {},
+        "passes": {},
+        "current": None
+    }
+
+    await update.message.reply_text(
+        "🔥 Начинаем игру на двоих!\nОба игрока нажмите кнопку:",
+        reply_markup=join_kb()
+    )
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    data = query.data
+    user = query.from_user
+    uid = user.id
+    name = user.first_name
+    chat_id = query.message.chat_id
 
-    if query.data == "truth":
+    # ===== Одиночная игра =====
+    if data == "solo_truth":
         task = random.choice(truths)
-        text = f"💙 <b>ПРАВДА</b>\n\n{task}"
-    else:
-        task = random.choice(dares)
-        text = f"🔥 <b>ДЕЙСТВИЕ</b>\n\n{task}"
+        await query.edit_message_text(f"💙 <b>ПРАВДА</b>\n\n{task}", reply_markup=solo_kb(), parse_mode="HTML")
+        return
 
-    await query.edit_message_text(
-        text=text,
-        reply_markup=main_kb(),
-        parse_mode="HTML"
-    )
+    if data == "solo_dare":
+        task = random.choice(dares)
+        await query.edit_message_text(f"🔥 <b>ДЕЙСТВИЕ</b>\n\n{task}", reply_markup=solo_kb(), parse_mode="HTML")
+        return
+
+    # ===== Групповая игра =====
+    game = games.get(chat_id)
+
+    if data == "join":
+        if not game:
+            await query.answer("Игра не найдена. Напиши /game", show_alert=True)
+            return
+        if uid in game["players"]:
+            await query.answer("Ты уже в игре", show_alert=True)
+            return
+
+        game["players"].append(uid)
+        game["names"][uid] = name
+        game["scores"][uid] = 0
+        game["passes"][uid] = 1
+
+        if len(game["players"]) == 1:
+            await query.edit_message_text(f"{name} в игре.\nЖдём второго игрока...", reply_markup=join_kb())
+        elif len(game["players"]) == 2:
+            game["current"] = random.choice(game["players"])
+            current_name = game["names"][game["current"]]
+            await query.edit_message_text(
+                f"Игра началась!\n\n"
+                f"Игроки: {game['names'][game['players'][0]]} и {game['names'][game['players'][1]]}\n\n"
+                f"Сейчас ходит: <b>{current_name}</b>",
+                reply_markup=turn_kb(game["current"]),
+                parse_mode="HTML"
+            )
+        return
+
+    if data.startswith("truth_") or data.startswith("dare_"):
+        action, target = data.split("_")
+        target = int(target)
+        if not game or uid != target or uid != game.get("current"):
+            await query.answer("Сейчас не твой ход!", show_alert=True)
+            return
+
+        task = random.choice(truths if action == "truth" else dares)
+        title = "ПРАВДА" if action == "truth" else "ДЕЙСТВИЕ"
+        emoji = "💙" if action == "truth" else "🔥"
+
+        await query.edit_message_text(
+            f"{emoji} <b>{title}</b> для {name}\n\n{task}\n\nКогда выполнишь — нажми кнопку ниже.",
+            reply_markup=done_kb(uid),
+            parse_mode="HTML"
+        )
+        return
+
+    if data.startswith("done_"):
+        target = int(data.split("_")[1])
+        if not game or uid != target:
+            await query.answer("Не твоя кнопка", show_alert=True)
+            return
+
+        game["scores"][uid] += 1
+        other = game["players"][0] if game["current"] == game["players"][1] else game["players"][1]
+        game["current"] = other
+
+        await query.edit_message_text(
+            f"✅ Ход передан!\n\n"
+            f"Счёт: {game['names'][uid]} — {game['scores'][uid]} | "
+            f"{game['names'][other]} — {game['scores'][other]}\n\n"
+            f"Сейчас ходит: <b>{game['names'][other]}</b>",
+            reply_markup=turn_kb(other),
+            parse_mode="HTML"
+        )
+        return
+
+    if data.startswith("pass_"):
+        target = int(data.split("_")[1])
+        if not game or uid != target or game["passes"].get(uid, 0) <= 0:
+            await query.answer("Пасов больше нет или не твой ход", show_alert=True)
+            return
+
+        game["passes"][uid] -= 1
+        other = game["players"][0] if game["current"] == game["players"][1] else game["players"][1]
+        game["current"] = other
+
+        await query.edit_message_text(
+            f"{name} использовал(а) пас.\n\nСейчас ходит: <b>{game['names'][other]}</b>",
+            reply_markup=turn_kb(other),
+            parse_mode="HTML"
+        )
+        return
+
+    if data == "end":
+        if chat_id in games:
+            del games[chat_id]
+        await query.edit_message_text("Игра завершена.\nЧтобы начать заново — напиши /game")
+        return
 
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("game", game_command))
     app.add_handler(CallbackQueryHandler(button))
-    
-    print("Бот успешно запущен!")
+    print("Бот запущен")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
