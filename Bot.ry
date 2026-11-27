@@ -209,7 +209,8 @@ async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     games[chat_id] = {
         "players": [], "names": {}, "roles": {}, "scores": {},
-        "passes": {}, "current": None, "mood": "dirty", "last_task": None
+        "passes": {}, "current": None, "mood": "dirty", "last_task": None,
+        "usernames": {}
     }
     await update.message.reply_text("🔥 Игра на двоих\nОба нажмите:", reply_markup=join_kb())
 
@@ -220,6 +221,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = query.from_user
     uid = user.id
     name = user.first_name
+    username = f"@{user.username}" if user.username else name
     chat_id = query.message.chat_id
     game = games.get(chat_id)
 
@@ -276,6 +278,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         game["players"].append(uid)
         game["names"][uid] = name
+        game["usernames"][uid] = username
         game["scores"][uid] = 0
         game["passes"][uid] = 1
         if len(game["players"]) == 1:
@@ -301,8 +304,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         game["mood"] = data.replace("mood_", "")
         game["current"] = random.choice(game["players"])
         mood_name = {"romantic": "Романтичный", "dirty": "Пошлый", "hard": "Жёсткий"}[game["mood"]]
+        current_tag = game["usernames"].get(game["current"], game["names"][game["current"]])
         await query.edit_message_text(
-            f"Игра началась!\nНастроение: <b>{mood_name}</b>\n\nСейчас ходит: <b>{game['names'][game['current']]}</b>",
+            f"Игра началась!\nНастроение: <b>{mood_name}</b>\n\nСейчас ходит: {current_tag}",
             reply_markup=turn_kb(game["current"]), parse_mode="HTML")
         return
 
@@ -334,7 +338,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Добавлено в «Хочу в реале» ⭐")
         return
 
-    # ===== ВОТ ЗДЕСЬ ИЗМЕНЕНИЕ: кнопку может нажать любой из игроков =====
+    # ===== Выполнил (может нажать любой из игроков) + Оценка =====
     if data.startswith("done_"):
         if not game:
             await query.answer("Игра не найдена", show_alert=True)
@@ -349,23 +353,47 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Ошибка хода", show_alert=True)
             return
 
-        # Засчитываем выполнение текущему игроку
         game["scores"][current] = game["scores"].get(current, 0) + 1
         other = game["players"][0] if current == game["players"][1] else game["players"][1]
         game["current"] = other
 
         current_name = game["names"][current]
         other_name = game["names"][other]
+        other_tag = game["usernames"].get(other, other_name)
+
+        rate_kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🔥 Очень горячо", callback_data="rate_hot"),
+                InlineKeyboardButton("😍 Понравилось", callback_data="rate_love"),
+                InlineKeyboardButton("😂 Смешно", callback_data="rate_lol")
+            ]
+        ])
 
         await query.message.reply_text(
             f"✅ Задание выполнено за <b>{current_name}</b>!\n\n"
-            f"📊 Счёт:\n"
-            f"{current_name} — <b>{game['scores'][current]}</b>\n"
-            f"{other_name} — <b>{game['scores'][other]}</b>\n\n"
-            f"Сейчас ходит: <b>{other_name}</b>",
-            reply_markup=turn_kb(other),
+            f"Как вам это задание?",
+            reply_markup=rate_kb,
             parse_mode="HTML"
         )
+        return
+
+    if data.startswith("rate_"):
+        rate_type = data.replace("rate_", "")
+        texts = {
+            "hot": "🔥 Оценено как очень горячее!",
+            "love": "😍 Оценено как понравившееся!",
+            "lol": "😂 Оценено как смешное!"
+        }
+        await query.answer(texts.get(rate_type, "Оценка принята"))
+
+        if game:
+            other = game["current"]
+            other_tag = game["usernames"].get(other, game["names"][other])
+            await query.message.reply_text(
+                f"Сейчас ходит: {other_tag}",
+                reply_markup=turn_kb(other),
+                parse_mode="HTML"
+            )
         return
 
     if data.startswith("pass_"):
@@ -377,9 +405,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         game["passes"][uid] -= 1
         other = game["players"][0] if game["current"] == game["players"][1] else game["players"][1]
         game["current"] = other
+        other_tag = game["usernames"].get(other, game["names"][other])
 
         await query.message.reply_text(
-            f"🔄 <b>{name}</b> использовал(а) пас.\n\nСейчас ходит: <b>{game['names'][other]}</b>",
+            f"🔄 <b>{name}</b> использовал(а) пас.\n\nСейчас ходит: {other_tag}",
             reply_markup=turn_kb(other),
             parse_mode="HTML"
         )
