@@ -227,23 +227,29 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "solo_truth":
         task = random.choice(tasks["dirty"]["truth"] + tasks["hard"]["truth"])
         context.user_data["last_task"] = task
-        await query.edit_message_text(f"💙 <b>ПРАВДА</b>\n\n{task}", 
+        await query.message.reply_text(
+            f"💙 <b>ПРАВДА</b>\n\n{task}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⭐ Хочу это в реале", callback_data="solo_fav")],
                 [InlineKeyboardButton("Ещё Правда", callback_data="solo_truth"),
                  InlineKeyboardButton("Действие", callback_data="solo_dare")]
-            ]), parse_mode="HTML")
+            ]),
+            parse_mode="HTML"
+        )
         return
 
     if data == "solo_dare":
         task = random.choice(tasks["dirty"]["dare"] + tasks["hard"]["dare"])
         context.user_data["last_task"] = task
-        await query.edit_message_text(f"🔥 <b>ДЕЙСТВИЕ</b>\n\n{task}",
+        await query.message.reply_text(
+            f"🔥 <b>ДЕЙСТВИЕ</b>\n\n{task}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⭐ Хочу это в реале", callback_data="solo_fav")],
                 [InlineKeyboardButton("Правда", callback_data="solo_truth"),
                  InlineKeyboardButton("Ещё Действие", callback_data="solo_dare")]
-            ]), parse_mode="HTML")
+            ]),
+            parse_mode="HTML"
+        )
         return
 
     if data == "solo_fav":
@@ -257,7 +263,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "show_fav":
         favs = favorites.get(str(uid), [])
         text = "<b>⭐ Хочу это в реале:</b>\n\n" + ("\n".join(f"• {f}" for f in favs) if favs else "Пока пусто")
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=solo_kb())
+        await query.message.reply_text(text, parse_mode="HTML", reply_markup=solo_kb())
         return
 
     # ===== Группа =====
@@ -300,20 +306,26 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=turn_kb(game["current"]), parse_mode="HTML")
         return
 
+    # ===== Главное изменение: задание приходит НОВЫМ сообщением =====
     if data.startswith("truth_") or data.startswith("dare_"):
         action, target = data.split("_")
         target = int(target)
         if not game or uid != target or uid != game.get("current"):
             await query.answer("Не твой ход!", show_alert=True)
             return
+
         role = game["roles"].get(uid)
         task = get_task(game["mood"], action, role)
         game["last_task"] = task
         title = "ПРАВДА" if action == "truth" else "ДЕЙСТВИЕ"
         emoji = "💙" if action == "truth" else "🔥"
-        await query.edit_message_text(
+
+        # Отправляем НОВОЕ сообщение (задание останется в чате)
+        await query.message.reply_text(
             f"{emoji} <b>{title}</b> для {name}\n\n{task}",
-            reply_markup=after_kb(uid), parse_mode="HTML")
+            reply_markup=after_kb(uid),
+            parse_mode="HTML"
+        )
         return
 
     if data.startswith("fav_"):
@@ -329,14 +341,21 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not game or uid != target:
             await query.answer("Не твоя кнопка", show_alert=True)
             return
+
         game["scores"][uid] += 1
         other = game["players"][0] if game["current"] == game["players"][1] else game["players"][1]
         game["current"] = other
-        await query.edit_message_text(
-            f"✅ Ход передан!\n\n"
-            f"📊 Счёт:\n{game['names'][uid]} — <b>{game['scores'][uid]}</b>\n{game['names'][other]} — <b>{game['scores'][other]}</b>\n\n"
+
+        # Новое сообщение с передачей хода
+        await query.message.reply_text(
+            f"✅ <b>{name}</b> выполнил(а) задание!\n\n"
+            f"📊 Счёт:\n"
+            f"{game['names'][uid]} — <b>{game['scores'][uid]}</b>\n"
+            f"{game['names'][other]} — <b>{game['scores'][other]}</b>\n\n"
             f"Сейчас ходит: <b>{game['names'][other]}</b>",
-            reply_markup=turn_kb(other), parse_mode="HTML")
+            reply_markup=turn_kb(other),
+            parse_mode="HTML"
+        )
         return
 
     if data.startswith("pass_"):
@@ -344,12 +363,16 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not game or uid != target or game["passes"].get(uid, 0) <= 0:
             await query.answer("Пасов больше нет или не твой ход", show_alert=True)
             return
+
         game["passes"][uid] -= 1
         other = game["players"][0] if game["current"] == game["players"][1] else game["players"][1]
         game["current"] = other
-        await query.edit_message_text(
-            f"🔄 {name} использовал(а) <b>пас</b>.\n\nСейчас ходит: <b>{game['names'][other]}</b>",
-            reply_markup=turn_kb(other), parse_mode="HTML")
+
+        await query.message.reply_text(
+            f"🔄 <b>{name}</b> использовал(а) пас.\n\nСейчас ходит: <b>{game['names'][other]}</b>",
+            reply_markup=turn_kb(other),
+            parse_mode="HTML"
+        )
         return
 
     if data == "stats":
@@ -365,7 +388,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{game['names'][p1]} — {game['passes'][p1]}\n"
             f"{game['names'][p2]} — {game['passes'][p2]}"
         )
-        await query.answer()
         await query.message.reply_text(text, parse_mode="HTML")
         return
 
@@ -389,7 +411,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{winner}"
             )
             del games[chat_id]
-            await query.edit_message_text(text, parse_mode="HTML")
+            await query.message.reply_text(text, parse_mode="HTML")
         return
 
 def main():
