@@ -306,7 +306,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=turn_kb(game["current"]), parse_mode="HTML")
         return
 
-    # ===== Главное изменение: задание приходит НОВЫМ сообщением =====
     if data.startswith("truth_") or data.startswith("dare_"):
         action, target = data.split("_")
         target = int(target)
@@ -320,7 +319,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         title = "ПРАВДА" if action == "truth" else "ДЕЙСТВИЕ"
         emoji = "💙" if action == "truth" else "🔥"
 
-        # Отправляем НОВОЕ сообщение (задание останется в чате)
         await query.message.reply_text(
             f"{emoji} <b>{title}</b> для {name}\n\n{task}",
             reply_markup=after_kb(uid),
@@ -336,23 +334,35 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Добавлено в «Хочу в реале» ⭐")
         return
 
+    # ===== ВОТ ЗДЕСЬ ИЗМЕНЕНИЕ: кнопку может нажать любой из игроков =====
     if data.startswith("done_"):
-        target = int(data.split("_")[1])
-        if not game or uid != target:
-            await query.answer("Не твоя кнопка", show_alert=True)
+        if not game:
+            await query.answer("Игра не найдена", show_alert=True)
             return
 
-        game["scores"][uid] += 1
-        other = game["players"][0] if game["current"] == game["players"][1] else game["players"][1]
+        if uid not in game["players"]:
+            await query.answer("Ты не участник этой игры", show_alert=True)
+            return
+
+        current = game.get("current")
+        if not current:
+            await query.answer("Ошибка хода", show_alert=True)
+            return
+
+        # Засчитываем выполнение текущему игроку
+        game["scores"][current] = game["scores"].get(current, 0) + 1
+        other = game["players"][0] if current == game["players"][1] else game["players"][1]
         game["current"] = other
 
-        # Новое сообщение с передачей хода
+        current_name = game["names"][current]
+        other_name = game["names"][other]
+
         await query.message.reply_text(
-            f"✅ <b>{name}</b> выполнил(а) задание!\n\n"
+            f"✅ Задание выполнено за <b>{current_name}</b>!\n\n"
             f"📊 Счёт:\n"
-            f"{game['names'][uid]} — <b>{game['scores'][uid]}</b>\n"
-            f"{game['names'][other]} — <b>{game['scores'][other]}</b>\n\n"
-            f"Сейчас ходит: <b>{game['names'][other]}</b>",
+            f"{current_name} — <b>{game['scores'][current]}</b>\n"
+            f"{other_name} — <b>{game['scores'][other]}</b>\n\n"
+            f"Сейчас ходит: <b>{other_name}</b>",
             reply_markup=turn_kb(other),
             parse_mode="HTML"
         )
